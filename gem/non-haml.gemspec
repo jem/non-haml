@@ -6,7 +6,7 @@ Gem::Specification.new do |s|
 
   s.author = "Jacob Mattingley"
   s.email = "jem@ieee.org"
-  s.homepage = "http://stanford.edu/~jacobm"
+  s.homepage = "https://github.com/jem/non-haml/"
   s.date = Date.today.to_s
   s.description = "HAML-like syntax for non-HTML"
   s.summary = s.description
