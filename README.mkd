@@ -1,0 +1,9 @@
+This is a simple language that provides HAML-like syntax, but for non-HTML
+files. Thus: non-HAML.
+
+General usage:
+
+```ruby
+require 'non-haml'
+NonHaml.generate outfile_name, infile_name, binding
+```
