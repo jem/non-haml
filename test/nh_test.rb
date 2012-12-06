@@ -1,3 +1,4 @@
-require_relative "../non_haml"
+require 'non-haml'
 
-NonHaml.generate 'nh_out.c', 'nh.c', binding, './'
+#NonHaml.generate 'test/nh_out.c', 'test/nh.c', binding, './'
+NonHaml.generate 'test/nh_out.c', 'test/basic.source', binding, './'

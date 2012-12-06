@@ -1,7 +1,7 @@
 PATH
   remote: gem
   specs:
-    non-haml (1.0)
+    non-haml (1.0.1)
 
 GEM
   remote: http://rubygems.org/

@@ -4,7 +4,7 @@
     inside 1
   - else 1
     inside 1e
-- else 0
+- else
   inside 0e
 final insn
 

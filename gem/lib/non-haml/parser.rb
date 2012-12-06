@@ -4,11 +4,27 @@
 
 # Example usage:
 #   require 'non-haml'
-#   NonHaml.generate 'output/source.c', 'source.c', binding
+#   NonHaml.generate source, local_vars|context
+#   NonHaml.generate_file 'output/source.c', 'source.c', local_vars|context
 
 module NonHaml
   class << self
+    def generate out_name, in_name, context_or_vars, base_dir='./', verbose=false
+      NonHamlParser.new.generate out_name, in_name, context_or_vars, base_dir, verbose
+    end
+  end
+
+  class IndentError < StandardError
+  end
+
+  class ParseError < StandardError
+  end
+
+  class NonHamlParser
     attr_accessor :last_ok_line, :out, :base_dir
+    def initialize
+      self.out = ""
+    end
 
     def concat spaces=nil, text=nil
       if spaces.nil? and text.nil?
@@ -18,10 +34,6 @@ module NonHaml
           self.out << "#{' '*spaces}#{l.rstrip}\n"
         end
       end
-    end
-
-    def generate out_name, in_name, context, base_dir='./', verbose=false
-      NonHamlParser.new.generate out_name, in_name, context, base_dir, verbose
     end
 
     def filename
@@ -39,17 +51,9 @@ module NonHaml
     end
 
     def current_filename
-      "#{base_dir}#{NonHaml.filename}"
+      "#{base_dir}#{filename}"
     end
-  end
 
-  class IndentError < StandardError
-  end
-
-  class ParseError < StandardError
-  end
-
-  class NonHamlParser
     def parse text, base_control_indent=0, base_indent=0
       @s = ""
       def store text
@@ -88,11 +92,11 @@ module NonHaml
           # Entering a block.
 
           if %w{elsif else}.include? $2
-            store control_indent + "NonHaml.last_ok_line = #{i}"
+            store control_indent + "last_ok_line = #{i}"
             dedent indent, %w{elsif else}.include?($2)
           else
             dedent indent, %w{elsif else}.include?($2)
-            store control_indent + "NonHaml.last_ok_line = #{i}"
+            store control_indent + "last_ok_line = #{i}"
           end
 
           store control_indent + $1
@@ -101,28 +105,28 @@ module NonHaml
           # Output should have same indent as block.
           concat_indent = indent
         elsif line =~ /= ?non_haml ['"](.*)['"]/
-          store control_indent + "NonHaml.last_ok_line = #{i}"
-          file = NonHaml.base_dir + $1
+          store control_indent + "last_ok_line = #{i}"
+          file = base_dir + $1
           if File.readable? file
-            store control_indent + "NonHaml.push_filename '#{$1}'"
+            store control_indent + "push_filename '#{$1}'"
             @s += parse open(file).read, control_indent.length, indent
           else
             store control_indent + "raise Errno::ENOENT, '\"#{$1}\"'"
           end
-          store control_indent + "NonHaml.pop_filename"
+          store control_indent + "pop_filename"
         elsif line.strip.length.zero?
           # Blank line. Output and move on. Don't change indent. Only do this
           # for if blocks though, so 'if false' doesn't generate optional blank
           # line and 'if true' does.
           #if @statements.last == 'if' or @statements.empty?
           # XXX disabled temporarily because it sucked.
-          store control_indent + "NonHaml.last_ok_line = #{i}"
+          store control_indent + "last_ok_line = #{i}"
           #if @statements.empty?
-            store "#{control_indent}NonHaml.concat"
+            store "#{control_indent}concat"
           #end
         else
           dedented = dedent indent
-          store control_indent + "NonHaml.last_ok_line = #{i}"
+          store control_indent + "last_ok_line = #{i}"
 
           # Now deal with whatever we have left.
           if line =~ /^- *(.*)$/
@@ -134,7 +138,7 @@ module NonHaml
             # Deal with blank lines.
             content = $1
             content = '""' if content.empty?
-            store "#{control_indent}NonHaml.concat(#{target_indent}, (#{content}))"
+            store "#{control_indent}concat(#{target_indent}, (#{content}))"
           elsif dedented and line.strip.empty?
             puts 'skipping'
             # Skip up to one blank line after dedenting.
@@ -155,7 +159,7 @@ module NonHaml
               # functions get the right arguments.
               subst = " % [#{to_sub.map{|x| "(#{x})"}.join ', '}]"
             end
-            store "#{control_indent}NonHaml.concat #{target_indent}, (%q##{line.gsub('#', '\\#')}##{subst})"
+            store "#{control_indent}concat #{target_indent}, (%q##{line.gsub('#', '\\#')}##{subst})"
           end
         end
       end
@@ -163,29 +167,52 @@ module NonHaml
       @s
     end
 
-    def generate out_name, in_name, context, base_dir, verbose
-      NonHaml.base_dir = base_dir
-      NonHaml.out = ""
+    def evaluate(code)
+      eval(code, @context)
+    end
 
-      NonHaml.push_filename in_name
+    def prepare_context(_context_or_vars)
+      case _context_or_vars
+      when Hash
+        @context = binding
+        _context_or_vars.each do |name, value|
+          evaluate("#{name} = nil")
+          setter = evaluate("lambda{|v| #{name} = v}")
+          setter.call(value)
+        end
+      else
+        raise TypeError, "cannot use context of type #{_context_or_vars.class}"
+      end
+      evaluate("concat = nil")
+      setter = evaluate("lambda{|v| concat = v}")
+    end
 
-      src = parse open(NonHaml.current_filename).read
+    def generate out_name, in_name, context_or_vars, base_dir='./', verbose=false
+      self.base_dir = base_dir
+      push_filename(in_name)
+
+      context = prepare_context(context_or_vars)
+      source = File.read(current_filename)
+      parsed = parse(source)
+      puts parsed
+
       if verbose
-        src.lines.each_with_index do |l,i|
+        parsed.lines.each_with_index do |l,i|
           print Color.blue '%3d  ' % (i + 1)
           puts l
         end
       end
 
       begin
-        eval src, context
+        evaluate(parsed)
       rescue Exception => e
+        raise
         # Interrupt everything, give more info, then dump out the old exception.
         $stderr.puts
-        $stderr.puts "in #{NonHaml.current_filename}:"
+        $stderr.puts "in #{current_filename}:"
         $stderr.puts Color.red " #{e.class.name}: #{Color.blue e.to_s}"
-        open(NonHaml.current_filename).lines.each_with_index.drop([NonHaml.last_ok_line - 2, 0].max).first(5).each do |line,i|
-          if i == NonHaml.last_ok_line
+        source.lines.each_with_index.drop([last_ok_line - 2, 0].max).first(5).each do |line,i|
+          if i == last_ok_line
             $stderr.print Color.red ' %3d  ' % (i + 1)
             $stderr.print Color.red line
           else
@@ -193,11 +220,7 @@ module NonHaml
             $stderr.print line
           end
         end
-        raise e
-      else
-        open(out_name, 'w') do |f|
-          f.puts NonHaml.out
-        end
+        raise
       end
     end
   end
