@@ -9,7 +9,7 @@
 
 module NonHaml
   class << self
-    def generate out_name, in_name, context_or_vars, base_dir='./', verbose=false
+    def generate out_name, in_name, context_or_vars={}, base_dir='./', verbose=false
       NonHamlParser.new.generate out_name, in_name, context_or_vars, base_dir, verbose
     end
   end
@@ -92,11 +92,11 @@ module NonHaml
           # Entering a block.
 
           if %w{elsif else}.include? $2
-            store control_indent + "last_ok_line = #{i}"
+            store control_indent + "self.last_ok_line = #{i}"
             dedent indent, %w{elsif else}.include?($2)
           else
             dedent indent, %w{elsif else}.include?($2)
-            store control_indent + "last_ok_line = #{i}"
+            store control_indent + "self.last_ok_line = #{i}"
           end
 
           store control_indent + $1
@@ -105,7 +105,7 @@ module NonHaml
           # Output should have same indent as block.
           concat_indent = indent
         elsif line =~ /= ?non_haml ['"](.*)['"]/
-          store control_indent + "last_ok_line = #{i}"
+          store control_indent + "self.last_ok_line = #{i}"
           file = base_dir + $1
           if File.readable? file
             store control_indent + "push_filename '#{$1}'"
@@ -120,13 +120,13 @@ module NonHaml
           # line and 'if true' does.
           #if @statements.last == 'if' or @statements.empty?
           # XXX disabled temporarily because it sucked.
-          store control_indent + "last_ok_line = #{i}"
+          store control_indent + "self.last_ok_line = #{i}"
           #if @statements.empty?
             store "#{control_indent}concat"
           #end
         else
           dedented = dedent indent
-          store control_indent + "last_ok_line = #{i}"
+          store control_indent + "self.last_ok_line = #{i}"
 
           # Now deal with whatever we have left.
           if line =~ /^- *(.*)$/
@@ -187,14 +187,13 @@ module NonHaml
       setter = evaluate("lambda{|v| concat = v}")
     end
 
-    def generate out_name, in_name, context_or_vars, base_dir='./', verbose=false
+    def generate out_name, in_name, context_or_vars, base_dir, verbose
       self.base_dir = base_dir
       push_filename(in_name)
 
       context = prepare_context(context_or_vars)
       source = File.read(current_filename)
       parsed = parse(source)
-      puts parsed
 
       if verbose
         parsed.lines.each_with_index do |l,i|
@@ -206,12 +205,10 @@ module NonHaml
       begin
         evaluate(parsed)
       rescue Exception => e
-        raise
         # Interrupt everything, give more info, then dump out the old exception.
-        $stderr.puts
-        $stderr.puts "in #{current_filename}:"
+        $stderr.puts "In #{current_filename}:"
         $stderr.puts Color.red " #{e.class.name}: #{Color.blue e.to_s}"
-        source.lines.each_with_index.drop([last_ok_line - 2, 0].max).first(5).each do |line,i|
+        File.read(current_filename).lines.each_with_index.drop([last_ok_line - 2, 0].max).first(5).each do |line,i|
           if i == last_ok_line
             $stderr.print Color.red ' %3d  ' % (i + 1)
             $stderr.print Color.red line
@@ -220,7 +217,11 @@ module NonHaml
             $stderr.print line
           end
         end
-        raise
+        raise e
+      else
+        File.open(out_name, "w") do |f|
+          f.write(out)
+        end
       end
     end
   end
